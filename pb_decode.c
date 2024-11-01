@@ -23,7 +23,6 @@
  **************************************/
 
 static bool checkreturn buf_read(pb_istream_t *stream, pb_byte_t *buf, size_t count);
-static bool checkreturn pb_decode_varint32_eof(pb_istream_t *stream, uint32_t *dest, bool *eof);
 static bool checkreturn read_raw_value(pb_istream_t *stream, pb_wire_type_t wire_type, pb_byte_t *buf, size_t *size);
 static bool checkreturn decode_basic_field(pb_istream_t *stream, pb_wire_type_t wire_type, pb_field_iter_t *field);
 static bool checkreturn decode_static_field(pb_istream_t *stream, pb_wire_type_t wire_type, pb_field_iter_t *field);
@@ -48,14 +47,6 @@ static bool checkreturn allocate_field(pb_istream_t *stream, void *pData, size_t
 static void initialize_pointer_field(void *pItem, pb_field_iter_t *field);
 static bool checkreturn pb_release_union_field(pb_istream_t *stream, pb_field_iter_t *field);
 static void pb_release_single_field(pb_field_iter_t *field);
-#endif
-
-#ifdef PB_WITHOUT_64BIT
-#define pb_int64_t int32_t
-#define pb_uint64_t uint32_t
-#else
-#define pb_int64_t int64_t
-#define pb_uint64_t uint64_t
 #endif
 
 typedef struct {
@@ -164,25 +155,72 @@ pb_istream_t pb_istream_from_buffer(const pb_byte_t *buf, size_t msglen)
     return stream;
 }
 
+/************************
+* Fast decode interface *
+*************************/
+
+#ifdef PB_ENABLE_MALLOC
+
+static void pb_decode_free(void *ptr)
+{
+    pb_free(ptr);
+}
+
+static void *pb_decode_realloc(void *ptr, size_t size)
+{
+    return pb_realloc(ptr, size);
+}
+
+#endif
+
+static void pb_decode_get_interface(pb_decode_if_t *pb) {
+    memset(pb, 0, sizeof(*pb));
+
+    pb->istream_from_buffer = pb_istream_from_buffer;
+    pb->make_string_substream = pb_make_string_substream;
+    pb->close_string_substream = pb_close_string_substream;
+
+    pb->decode_tag = pb_decode_tag;
+    pb->decode_varint32 = pb_decode_varint32;
+    pb->decode_varint = pb_decode_varint;
+    pb->decode_svarint = pb_decode_svarint;
+    pb->decode_fixed32 = pb_decode_fixed32;
+#ifndef PB_WITHOUT_64BIT
+    pb->decode_fixed64 = pb_decode_fixed64;
+#else
+    pb->decode_fixed64 = NULL;
+#endif
+#ifdef PB_CONVERT_DOUBLE_FLOAT
+    pb->decode_double_as_float = pb_decode_double_as_float;
+#else
+    pb->decode_double_as_float = NULL;
+#endif
+    pb->decode_bool = pb_decode_bool;
+    pb->skip_field = pb_skip_field;
+
+    pb->read = pb_read;
+    pb->read_value = read_raw_value;
+
+#ifdef PB_ENABLE_MALLOC
+    pb->realloc = pb_decode_realloc;
+    pb->free = pb_decode_free;
+#else
+    pb->realloc = NULL;
+    pb->free = NULL;
+#endif
+}
+
 /********************
  * Helper functions *
  ********************/
 
-static bool checkreturn pb_decode_varint32_eof(pb_istream_t *stream, uint32_t *dest, bool *eof)
+bool checkreturn pb_decode_varint32(pb_istream_t *stream, uint32_t *dest)
 {
     pb_byte_t byte;
     uint32_t result;
     
     if (!pb_readbyte(stream, &byte))
     {
-        if (stream->bytes_left == 0)
-        {
-            if (eof)
-            {
-                *eof = true;
-            }
-        }
-
         return false;
     }
     
@@ -232,11 +270,6 @@ static bool checkreturn pb_decode_varint32_eof(pb_istream_t *stream, uint32_t *d
    
    *dest = result;
    return true;
-}
-
-bool checkreturn pb_decode_varint32(pb_istream_t *stream, uint32_t *dest)
-{
-    return pb_decode_varint32_eof(stream, dest, NULL);
 }
 
 #ifndef PB_WITHOUT_64BIT
@@ -294,9 +327,23 @@ bool checkreturn pb_decode_tag(pb_istream_t *stream, pb_wire_type_t *wire_type, 
     *eof = false;
     *wire_type = (pb_wire_type_t) 0;
     *tag = 0;
-    
-    if (!pb_decode_varint32_eof(stream, &temp, eof))
+
+    if (stream->bytes_left == 0)
     {
+        *eof = true;
+        return false;
+    }
+
+    if (!pb_decode_varint32(stream, &temp))
+    {
+#ifndef PB_BUFFER_ONLY
+        /* band-aid for issue #1017. eof has been hit, but may have a lingering io error due to callbacks */
+        if (stream->callback != buf_read && stream->bytes_left == 0)
+        {
+            PB_SET_ERROR(stream, NULL);
+            *eof = true;
+        }
+#endif
         return false;
     }
     
@@ -1166,6 +1213,13 @@ bool checkreturn pb_decode_ex(pb_istream_t *stream, const pb_msgdesc_t *fields, 
 {
     bool status;
 
+    if (fields->decode)
+    {
+        pb_decode_if_t pb;
+        pb_decode_get_interface(&pb);
+        return fields->decode(&pb, stream, dest_struct, flags, 0, (pb_wire_type_t)0);
+    }
+
     if ((flags & PB_DECODE_DELIMITED) == 0)
     {
       status = pb_decode_inner(stream, fields, dest_struct, flags);
@@ -1192,16 +1246,7 @@ bool checkreturn pb_decode_ex(pb_istream_t *stream, const pb_msgdesc_t *fields, 
 
 bool checkreturn pb_decode(pb_istream_t *stream, const pb_msgdesc_t *fields, void *dest_struct)
 {
-    bool status;
-
-    status = pb_decode_inner(stream, fields, dest_struct, 0);
-
-#ifdef PB_ENABLE_MALLOC
-    if (!status)
-        pb_release(fields, dest_struct);
-#endif
-
-    return status;
+    return pb_decode_ex(stream, fields, dest_struct, 0);
 }
 
 #ifdef PB_ENABLE_MALLOC
@@ -1334,6 +1379,14 @@ void pb_release(const pb_msgdesc_t *fields, void *dest_struct)
     
     if (!dest_struct)
         return; /* Ignore NULL pointers, similar to free() */
+
+    if (fields->release)
+    {
+        pb_decode_if_t pb;
+        pb_decode_get_interface(&pb);
+        fields->release(&pb, dest_struct, 0, 0);
+        return;
+    }
 
     if (!pb_field_iter_begin(&iter, fields, dest_struct))
         return; /* Empty message type */
