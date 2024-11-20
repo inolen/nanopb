@@ -324,9 +324,8 @@ bool checkreturn pb_skip_string(pb_istream_t *stream)
 bool checkreturn pb_decode_tag(pb_istream_t *stream, pb_wire_type_t *wire_type, uint32_t *tag, bool *eof)
 {
     uint32_t temp;
+
     *eof = false;
-    *wire_type = (pb_wire_type_t) 0;
-    *tag = 0;
 
     if (stream->bytes_left == 0)
     {
@@ -358,6 +357,7 @@ bool checkreturn pb_decode_tag(pb_istream_t *stream, pb_wire_type_t *wire_type, 
     
     *tag = temp >> 3;
     *wire_type = (pb_wire_type_t)(temp & 7);
+
     return true;
 }
 
