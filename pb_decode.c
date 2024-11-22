@@ -216,60 +216,58 @@ static void pb_bind_dynamic_decode_interface()
 
 bool checkreturn pb_decode_varint32(pb_istream_t *stream, uint32_t *dest)
 {
-    pb_byte_t byte;
     uint32_t result;
-    
-    if (!pb_readbyte(stream, &byte))
-    {
-        return false;
-    }
-    
-    if ((byte & 0x80) == 0)
-    {
-        /* Quick case, 1 byte value */
-        result = byte;
-    }
-    else
-    {
-        /* Multibyte case */
-        uint_fast8_t bitpos = 7;
-        result = byte & 0x7F;
-        
-        do
-        {
-            if (!pb_readbyte(stream, &byte))
-                return false;
-            
-            if (bitpos >= 32)
-            {
-                /* Note: The varint could have trailing 0x80 bytes, or 0xFF for negative. */
-                pb_byte_t sign_extension = (bitpos < 63) ? 0xFF : 0x01;
-                bool valid_extension = ((byte & 0x7F) == 0x00 ||
-                         ((result >> 31) != 0 && byte == sign_extension));
+    uint32_t bitpos;
+    uint32_t expect;
+    uint32_t append;
+    pb_byte_t byte;
 
-                if (bitpos >= 64 || !valid_extension)
-                {
-                    PB_RETURN_ERROR(stream, "varint overflow");
-                }
-            }
-            else if (bitpos == 28)
+    result = 0;
+    bitpos = 0;
+
+    do
+    {
+        if (!pb_readbyte(stream, &byte))
+            return false;
+
+        append = byte & 0x7F;
+
+        if (bitpos >= 28)
+        {
+            if (bitpos == 28)
             {
-                if ((byte & 0x70) != 0 && (byte & 0x78) != 0x78)
-                {
-                    PB_RETURN_ERROR(stream, "varint overflow");
-                }
-                result |= (uint32_t)(byte & 0x0F) << bitpos;
+                /* append the final 4 bits */
+                result |= (byte & 0x0F) << bitpos;
+
+                /* if the sign bit is set (and extended), all subsequent bits must also be set */
+                if ((byte & 0x78) == 0x78)
+                    expect = 0x7F;
+                else
+                    expect = 0x00;
+
+                /* only check the high 3 bits */
+                append = (byte & 0x70) | (expect & 0x0F);
             }
-            else
+            else if (bitpos == 63)
             {
-                result |= (uint32_t)(byte & 0x7F) << bitpos;
+                /* only check the "continue" and low bit */
+                append = (byte & 0x81) | (expect & 0x7E);
             }
-            bitpos = (uint_fast8_t)(bitpos + 7);
-        } while (byte & 0x80);
-   }
-   
-   *dest = result;
-   return true;
+
+            if (append != expect)
+                PB_RETURN_ERROR(stream, "varint overflow");
+        }
+        else
+        {
+            result |= append << bitpos;
+        }
+
+        bitpos += 7;
+    } while (byte & 0x80);
+
+    *dest = result;
+
+    return true;
 }
 
 #ifndef PB_WITHOUT_64BIT
