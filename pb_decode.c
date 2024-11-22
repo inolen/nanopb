@@ -311,7 +311,7 @@ bool checkreturn pb_skip_varint(pb_istream_t *stream)
 
 bool checkreturn pb_skip_string(pb_istream_t *stream)
 {
-    pb_uint64_t length;
+    pb_uvarint_t length;
 
     if (!pb_decode_varint(stream, &length))
         return false;
@@ -324,7 +324,7 @@ bool checkreturn pb_skip_string(pb_istream_t *stream)
 
 bool checkreturn pb_decode_tag(pb_istream_t *stream, pb_wire_type_t *wire_type, uint32_t *tag, bool *eof)
 {
-    pb_uint64_t temp;
+    pb_uvarint_t temp;
 
     *eof = false;
 
@@ -429,7 +429,7 @@ static bool checkreturn read_raw_value(pb_istream_t *stream, pb_wire_type_t wire
  */
 bool checkreturn pb_make_string_substream(pb_istream_t *stream, pb_istream_t *substream)
 {
-    pb_uint64_t size;
+    pb_uvarint_t size;
 
     if (!pb_decode_varint(stream, &size))
         return false;
@@ -1440,7 +1440,7 @@ void pb_release(const pb_msgdesc_t *fields, void *dest_struct)
 
 bool pb_decode_bool(pb_istream_t *stream, bool *dest)
 {
-    pb_uint64_t value;
+    pb_uvarint_t value;
 
     if (!pb_decode_varint(stream, &value))
         return false;
@@ -1450,14 +1450,14 @@ bool pb_decode_bool(pb_istream_t *stream, bool *dest)
     return true;
 }
 
-bool pb_decode_svarint(pb_istream_t *stream, pb_int64_t *dest)
+bool pb_decode_svarint(pb_istream_t *stream, pb_svarint_t *dest)
 {
-    pb_uint64_t value;
+    pb_uvarint_t value;
 
     if (!pb_decode_varint(stream, &value))
         return false;
 
-    *dest = (pb_int64_t)(value >> 1) ^ -(pb_int64_t)(value & 0x1);
+    *dest = (pb_svarint_t)(value >> 1) ^ -(pb_svarint_t)(value & 0x1);
     
     return true;
 }
@@ -1519,11 +1519,11 @@ bool checkreturn pb_dec_bool(pb_istream_t *stream, void *dest)
 
 bool checkreturn pb_dec_varint(pb_istream_t *stream, void *dest, size_t size)
 {
-    pb_uint64_t overflow;
+    pb_uvarint_t overflow;
 
     union {
-        pb_uint64_t u64;
-        pb_int64_t s64;
+        pb_uvarint_t u64;
+        pb_svarint_t s64;
     } value;
 
     if (!pb_decode_varint(stream, &value.u64))
@@ -1539,7 +1539,7 @@ bool checkreturn pb_dec_varint(pb_istream_t *stream, void *dest, size_t size)
         value.s64 = (int32_t)value.s64;
 
     /* Check that the decoded value isn't too small for the field */
-    if (sizeof(pb_uint64_t) < size)
+    if (sizeof(pb_uvarint_t) < size)
         PB_RETURN_ERROR(stream, "invalid data_size");
 
     /* Check that the decoded value isn't too big for the field */
@@ -1555,20 +1555,20 @@ bool checkreturn pb_dec_varint(pb_istream_t *stream, void *dest, size_t size)
 
 bool checkreturn pb_dec_uvarint(pb_istream_t *stream, void *dest, size_t size)
 {
-    pb_uint64_t value;
+    pb_uvarint_t value;
 
     if (!pb_decode_varint(stream, &value))
         return false;
 
     /* Check that the decoded value isn't too small for the field */
-    if (sizeof(pb_uint64_t) < size)
+    if (sizeof(pb_uvarint_t) < size)
         PB_RETURN_ERROR(stream, "invalid data_size");
 
     /* Check that the decoded value isn't too big for the field. Unlike the test in
        pb_dec_varint which checks to see if something overflowed into the sign bit,
        this is just checking to see if any bits are set after size << 3. The extra
        shift to the right by 1 is to avoid a conditional in the event that size is
-       equal to sizeof(pb_uint64_t) */
+       equal to sizeof(pb_uvarint_t) */
     if ((value >> 1) >> (size_t)((size << 3) - 1))
         PB_RETURN_ERROR(stream, "integer too large");
 
@@ -1579,18 +1579,18 @@ bool checkreturn pb_dec_uvarint(pb_istream_t *stream, void *dest, size_t size)
 
 bool checkreturn pb_dec_svarint(pb_istream_t *stream, void *dest, size_t size)
 {
-    pb_uint64_t overflow;
+    pb_uvarint_t overflow;
 
     union {
-        pb_uint64_t u64;
-        pb_int64_t s64;
+        pb_uvarint_t u64;
+        pb_svarint_t s64;
     } value;
 
     if (!pb_decode_svarint(stream, &value.s64))
         return false;
 
     /* Check that the decoded value isn't too small for the field */
-    if (sizeof(pb_uint64_t) < size)
+    if (sizeof(pb_uvarint_t) < size)
         PB_RETURN_ERROR(stream, "invalid data_size");
 
     /* Check that the decoded value isn't too big for the field */
@@ -1631,7 +1631,7 @@ bool checkreturn pb_dec_fixed64(pb_istream_t *stream, void *dest, size_t size)
 
 bool checkreturn pb_dec_bytes(pb_istream_t *stream, void *dest, size_t capacity)
 {
-    pb_uint64_t wire_length;
+    pb_uvarint_t wire_length;
     size_t alloc_size;
     pb_bytes_array_t *data;
 
@@ -1682,7 +1682,7 @@ bool checkreturn pb_dec_bytes(pb_istream_t *stream, void *dest, size_t capacity)
 
 bool checkreturn pb_dec_string(pb_istream_t *stream, void *dest, size_t capacity)
 {
-    pb_uint64_t wire_length;
+    pb_uvarint_t wire_length;
     size_t alloc_size;
     pb_byte_t *data;
 
@@ -1797,7 +1797,7 @@ bool checkreturn pb_dec_submessage(pb_istream_t *stream, const pb_field_iter_t *
 
 bool checkreturn pb_dec_fixed_length_bytes(pb_istream_t *stream, void *dest, size_t capacity)
 {
-    pb_uint64_t wire_length;
+    pb_uvarint_t wire_length;
 
     if (!pb_decode_varint(stream, &wire_length))
         return false;

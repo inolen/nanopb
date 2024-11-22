@@ -786,7 +786,7 @@ extern struct pb_decode_interface_s pb_dec_if;
         if (wire_type == PB_WT_STRING)                                                                                                     \
         {                                                                                                                                  \
             size_t end_bytes_left;                                                                                                         \
-            pb_uint64_t len;                                                                                                               \
+            pb_uvarint_t len;                                                                                                              \
                                                                                                                                            \
             if (!PB_DECODE_UVARINT(stream, &len, sizeof(len)))                                                                             \
                 return false;                                                                                                              \
@@ -904,7 +904,7 @@ extern struct pb_decode_interface_s pb_dec_if;
         if (wire_type == PB_WT_STRING)                                                                                                     \
         {                                                                                                                                  \
             size_t end_bytes_left;                                                                                                         \
-            pb_uint64_t len;                                                                                                               \
+            pb_uvarint_t len;                                                                                                              \
                                                                                                                                            \
             if (!PB_DECODE_UVARINT(stream, &len, sizeof(len)))                                                                             \
                 return false;                                                                                                              \

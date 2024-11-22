@@ -229,11 +229,11 @@ PB_STATIC_ASSERT(1, STATIC_ASSERT_IS_NOT_WORKING)
 /* Cannot use doubles without 64-bit types */
 #undef PB_CONVERT_DOUBLE_FLOAT
 #endif
-#define pb_int64_t int32_t
-#define pb_uint64_t uint32_t
+#define pb_svarint_t int32_t
+#define pb_uvarint_t uint32_t
 #else
-#define pb_int64_t int64_t
-#define pb_uint64_t uint64_t
+#define pb_svarint_t int64_t
+#define pb_uvarint_t uint64_t
 #endif
 
 /* Data type for storing encoded data and other byte streams.

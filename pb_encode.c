@@ -163,7 +163,7 @@ static bool checkreturn encode_array(pb_ostream_t *stream, pb_field_iter_t *fiel
             size = sizestream.bytes_written;
         }
         
-        if (!pb_encode_varint(stream, (pb_uint64_t)size))
+        if (!pb_encode_varint(stream, (pb_uvarint_t)size))
             return false;
         
         if (stream->callback == NULL)
@@ -596,7 +596,7 @@ static bool checkreturn pb_encode_varint_32(pb_ostream_t *stream, uint32_t low, 
     return pb_write(stream, buffer, i);
 }
 
-bool checkreturn pb_encode_varint(pb_ostream_t *stream, pb_uint64_t value)
+bool checkreturn pb_encode_varint(pb_ostream_t *stream, pb_uvarint_t value)
 {
     if (value <= 0x7F)
     {
@@ -614,14 +614,14 @@ bool checkreturn pb_encode_varint(pb_ostream_t *stream, pb_uint64_t value)
     }
 }
 
-bool checkreturn pb_encode_svarint(pb_ostream_t *stream, pb_int64_t value)
+bool checkreturn pb_encode_svarint(pb_ostream_t *stream, pb_svarint_t value)
 {
-    pb_uint64_t zigzagged;
-    pb_uint64_t mask = ((pb_uint64_t)-1) >> 1; /* Satisfy clang -fsanitize=integer */
+    pb_uvarint_t zigzagged;
+    pb_uvarint_t mask = ((pb_uvarint_t)-1) >> 1; /* Satisfy clang -fsanitize=integer */
     if (value < 0)
-        zigzagged = ~(((pb_uint64_t)value & mask) << 1);
+        zigzagged = ~(((pb_uvarint_t)value & mask) << 1);
     else
-        zigzagged = (pb_uint64_t)value << 1;
+        zigzagged = (pb_uvarint_t)value << 1;
     
     return pb_encode_varint(stream, zigzagged);
 }
@@ -666,7 +666,7 @@ bool checkreturn pb_encode_fixed64(pb_ostream_t *stream, const void *value)
 
 bool checkreturn pb_encode_tag(pb_ostream_t *stream, pb_wire_type_t wiretype, uint32_t field_number)
 {
-    pb_uint64_t tag = ((pb_uint64_t)field_number << 3) | wiretype;
+    pb_uvarint_t tag = ((pb_uvarint_t)field_number << 3) | wiretype;
     return pb_encode_varint(stream, tag);
 }
 
@@ -707,7 +707,7 @@ bool pb_encode_tag_for_field ( pb_ostream_t* stream, const pb_field_iter_t* fiel
 
 bool checkreturn pb_encode_string(pb_ostream_t *stream, const pb_byte_t *buffer, size_t size)
 {
-    if (!pb_encode_varint(stream, (pb_uint64_t)size))
+    if (!pb_encode_varint(stream, (pb_uvarint_t)size))
         return false;
     
     return pb_write(stream, buffer, size);
@@ -730,7 +730,7 @@ bool checkreturn pb_encode_submessage(pb_ostream_t *stream, const pb_msgdesc_t *
         return false;
     }
     
-    if (!pb_encode_varint(stream, (pb_uint64_t)substream.bytes_written))
+    if (!pb_encode_varint(stream, (pb_uvarint_t)substream.bytes_written))
         return false;
     
     if (stream->callback == NULL)
@@ -782,7 +782,7 @@ static bool checkreturn pb_enc_varint(pb_ostream_t *stream, const pb_field_iter_
     if (PB_LTYPE(field->type) == PB_LTYPE_UVARINT)
     {
         /* Perform unsigned integer extension */
-        pb_uint64_t value = 0;
+        pb_uvarint_t value = 0;
 
         if (field->data_size == sizeof(uint_least8_t))
             value = *(const uint_least8_t*)field->pData;
@@ -790,8 +790,8 @@ static bool checkreturn pb_enc_varint(pb_ostream_t *stream, const pb_field_iter_
             value = *(const uint_least16_t*)field->pData;
         else if (field->data_size == sizeof(uint32_t))
             value = *(const uint32_t*)field->pData;
-        else if (field->data_size == sizeof(pb_uint64_t))
-            value = *(const pb_uint64_t*)field->pData;
+        else if (field->data_size == sizeof(pb_uvarint_t))
+            value = *(const pb_uvarint_t*)field->pData;
         else
             PB_RETURN_ERROR(stream, "invalid data_size");
 
@@ -800,7 +800,7 @@ static bool checkreturn pb_enc_varint(pb_ostream_t *stream, const pb_field_iter_
     else
     {
         /* Perform signed integer extension */
-        pb_int64_t value = 0;
+        pb_svarint_t value = 0;
 
         if (field->data_size == sizeof(int_least8_t))
             value = *(const int_least8_t*)field->pData;
@@ -808,8 +808,8 @@ static bool checkreturn pb_enc_varint(pb_ostream_t *stream, const pb_field_iter_
             value = *(const int_least16_t*)field->pData;
         else if (field->data_size == sizeof(int32_t))
             value = *(const int32_t*)field->pData;
-        else if (field->data_size == sizeof(pb_int64_t))
-            value = *(const pb_int64_t*)field->pData;
+        else if (field->data_size == sizeof(pb_svarint_t))
+            value = *(const pb_svarint_t*)field->pData;
         else
             PB_RETURN_ERROR(stream, "invalid data_size");
 
@@ -820,7 +820,7 @@ static bool checkreturn pb_enc_varint(pb_ostream_t *stream, const pb_field_iter_
             return pb_encode_varint_32(stream, (uint32_t)value, (uint32_t)-1);
 #endif
         else
-            return pb_encode_varint(stream, (pb_uint64_t)value);
+            return pb_encode_varint(stream, (pb_uvarint_t)value);
 
     }
 }
