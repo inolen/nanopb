@@ -273,23 +273,28 @@ bool checkreturn pb_decode_varint32(pb_istream_t *stream, uint32_t *dest)
 #ifndef PB_WITHOUT_64BIT
 bool checkreturn pb_decode_varint(pb_istream_t *stream, uint64_t *dest)
 {
+    uint64_t result;
+    uint32_t bitpos;
     pb_byte_t byte;
-    uint_fast8_t bitpos = 0;
-    uint64_t result = 0;
-    
+
+    result = 0;
+    bitpos = 0;
+
     do
     {
         if (!pb_readbyte(stream, &byte))
             return false;
 
-        if (bitpos >= 63 && (byte & 0xFE) != 0)
-            PB_RETURN_ERROR(stream, "varint overflow");
-
         result |= (uint64_t)(byte & 0x7F) << bitpos;
-        bitpos = (uint_fast8_t)(bitpos + 7);
+
+        bitpos += 7;
     } while (byte & 0x80);
-    
+
+    if (bitpos > 70)
+        PB_RETURN_ERROR(stream, "varint overflow");
+
     *dest = result;
+
     return true;
 }
 #endif
