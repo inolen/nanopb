@@ -24,7 +24,6 @@ extern struct pb_decode_interface_s pb_dec_if;
 #define PB_CLOSE_STRING_SUBSTREAM(_1, _2)        pb_dec_if.close_string_substream(_1, _2)
 #define PB_DECODE_CALLBACK_FIELD(_1, _2, _3)     pb_dec_if.decode_callback_field(_1, _2, _3)
 #define PB_DECODE_TAG(_1, _2, _3, _4)            pb_dec_if.decode_tag(_1, _2, _3, _4)
-#define PB_DECODE_VARINT32(_1, _2)               pb_dec_if.decode_varint32(_1, _2)
 #define PB_DECODE_BOOL(_1, _2)                   pb_dec_if.dec_bool(_1, _2)
 #define PB_DECODE_VARINT(_1, _2, _3)             pb_dec_if.dec_varint(_1, _2, _3)
 #define PB_DECODE_UVARINT(_1, _2, _3)            pb_dec_if.dec_uvarint(_1, _2, _3)
@@ -46,7 +45,6 @@ extern struct pb_decode_interface_s pb_dec_if;
 #define PB_CLOSE_STRING_SUBSTREAM(_1, _2)        pb_close_string_substream(_1, _2)
 #define PB_DECODE_CALLBACK_FIELD(_1, _2, _3)     decode_callback_field(_1, _2, _3)
 #define PB_DECODE_TAG(_1, _2, _3, _4)            pb_decode_tag(_1, _2, _3, _4)
-#define PB_DECODE_VARINT32(_1, _2)               pb_decode_varint32(_1, _2)
 #define PB_DECODE_BOOL(_1, _2)                   pb_dec_bool(_1, _2)
 #define PB_DECODE_VARINT(_1, _2, _3)             pb_dec_varint(_1, _2, _3)
 #define PB_DECODE_UVARINT(_1, _2, _3)            pb_dec_uvarint(_1, _2, _3)
@@ -788,9 +786,9 @@ extern struct pb_decode_interface_s pb_dec_if;
         if (wire_type == PB_WT_STRING)                                                                                                     \
         {                                                                                                                                  \
             size_t end_bytes_left;                                                                                                         \
-            uint32_t len;                                                                                                                  \
+            pb_uint64_t len;                                                                                                               \
                                                                                                                                            \
-            if (!PB_DECODE_VARINT32(stream, &len))                                                                                         \
+            if (!PB_DECODE_UVARINT(stream, &len, sizeof(len)))                                                                             \
                 return false;                                                                                                              \
                                                                                                                                            \
             end_bytes_left = stream->bytes_left - (size_t)len;                                                                             \
@@ -906,9 +904,9 @@ extern struct pb_decode_interface_s pb_dec_if;
         if (wire_type == PB_WT_STRING)                                                                                                     \
         {                                                                                                                                  \
             size_t end_bytes_left;                                                                                                         \
-            uint32_t len;                                                                                                                  \
+            pb_uint64_t len;                                                                                                               \
                                                                                                                                            \
-            if (!PB_DECODE_VARINT32(stream, &len))                                                                                         \
+            if (!PB_DECODE_UVARINT(stream, &len, sizeof(len)))                                                                             \
                 return false;                                                                                                              \
                                                                                                                                            \
             end_bytes_left = stream->bytes_left - (size_t)len;                                                                             \

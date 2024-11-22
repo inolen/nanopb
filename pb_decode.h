@@ -73,7 +73,6 @@ struct pb_decode_interface_s
     bool (*decode_extension)(pb_istream_t *, uint32_t, pb_wire_type_t, pb_extension_t *);
 
     bool (*decode_tag)(pb_istream_t *, pb_wire_type_t *, uint32_t *, bool *);
-    bool (*decode_varint32)(pb_istream_t *, uint32_t *);
 
     bool (*dec_bool)(pb_istream_t *, void *);
     bool (*dec_varint)(pb_istream_t *, void *, size_t);

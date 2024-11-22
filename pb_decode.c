@@ -192,7 +192,6 @@ static void pb_bind_dynamic_decode_interface()
     pb_dec_if.decode_extension = decode_extension;
 
     pb_dec_if.decode_tag = pb_decode_tag;
-    pb_dec_if.decode_varint32 = pb_decode_varint32;
 
     pb_dec_if.dec_bool = pb_dec_bool;
     pb_dec_if.dec_varint = pb_dec_varint;
@@ -312,21 +311,20 @@ bool checkreturn pb_skip_varint(pb_istream_t *stream)
 
 bool checkreturn pb_skip_string(pb_istream_t *stream)
 {
-    uint32_t length;
-    if (!pb_decode_varint32(stream, &length))
+    pb_uint64_t length;
+
+    if (!pb_decode_varint(stream, &length))
         return false;
-    
+
     if ((size_t)length != length)
-    {
         PB_RETURN_ERROR(stream, "size too large");
-    }
 
     return pb_read(stream, NULL, (size_t)length);
 }
 
 bool checkreturn pb_decode_tag(pb_istream_t *stream, pb_wire_type_t *wire_type, uint32_t *tag, bool *eof)
 {
-    uint32_t temp;
+    pb_uint64_t temp;
 
     *eof = false;
 
@@ -336,7 +334,7 @@ bool checkreturn pb_decode_tag(pb_istream_t *stream, pb_wire_type_t *wire_type, 
         return false;
     }
 
-    if (!pb_decode_varint32(stream, &temp))
+    if (!pb_decode_varint(stream, &temp))
     {
 #ifndef PB_BUFFER_ONLY
         /* Workaround for issue #1017
@@ -358,8 +356,8 @@ bool checkreturn pb_decode_tag(pb_istream_t *stream, pb_wire_type_t *wire_type, 
         return false;
     }
     
-    *tag = temp >> 3;
     *wire_type = (pb_wire_type_t)(temp & 7);
+    *tag = (uint32_t)(temp >> 3);
 
     return true;
 }
@@ -431,16 +429,19 @@ static bool checkreturn read_raw_value(pb_istream_t *stream, pb_wire_type_t wire
  */
 bool checkreturn pb_make_string_substream(pb_istream_t *stream, pb_istream_t *substream)
 {
-    uint32_t size;
-    if (!pb_decode_varint32(stream, &size))
+    pb_uint64_t size;
+
+    if (!pb_decode_varint(stream, &size))
         return false;
     
     *substream = *stream;
-    if (substream->bytes_left < size)
+
+    if (substream->bytes_left < (size_t)size)
         PB_RETURN_ERROR(stream, "parent stream too short");
     
     substream->bytes_left = (size_t)size;
     stream->bytes_left -= (size_t)size;
+
     return true;
 }
 
@@ -1439,11 +1440,13 @@ void pb_release(const pb_msgdesc_t *fields, void *dest_struct)
 
 bool pb_decode_bool(pb_istream_t *stream, bool *dest)
 {
-    uint32_t value;
-    if (!pb_decode_varint32(stream, &value))
+    pb_uint64_t value;
+
+    if (!pb_decode_varint(stream, &value))
         return false;
 
     *(bool*)dest = (value != 0);
+
     return true;
 }
 
@@ -1628,19 +1631,19 @@ bool checkreturn pb_dec_fixed64(pb_istream_t *stream, void *dest, size_t size)
 
 bool checkreturn pb_dec_bytes(pb_istream_t *stream, void *dest, size_t capacity)
 {
-    uint32_t size;
+    pb_uint64_t wire_length;
     size_t alloc_size;
     pb_bytes_array_t *data;
 
-    if (!pb_decode_varint32(stream, &size))
+    if (!pb_decode_varint(stream, &wire_length))
         return false;
 
-    if (size > PB_SIZE_MAX)
+    if (wire_length > PB_SIZE_MAX)
         PB_RETURN_ERROR(stream, "bytes overflow");
 
-    alloc_size = PB_BYTES_ARRAY_T_ALLOCSIZE(size);
+    alloc_size = PB_BYTES_ARRAY_T_ALLOCSIZE(wire_length);
 
-    if (size > alloc_size)
+    if (wire_length > alloc_size)
         PB_RETURN_ERROR(stream, "size too large");
 
 #ifdef PB_ENABLE_MALLOC
@@ -1660,9 +1663,9 @@ bool checkreturn pb_dec_bytes(pb_istream_t *stream, void *dest, size_t capacity)
         data = (pb_bytes_array_t *)dest;
     }
 
-    data->size = (pb_size_t)size;
+    data->size = (pb_size_t)wire_length;
 
-    if (!pb_read(stream, data->bytes, size))
+    if (!pb_read(stream, data->bytes, wire_length))
     {
 #ifdef PB_ENABLE_MALLOC
         if (!capacity)
@@ -1679,20 +1682,20 @@ bool checkreturn pb_dec_bytes(pb_istream_t *stream, void *dest, size_t capacity)
 
 bool checkreturn pb_dec_string(pb_istream_t *stream, void *dest, size_t capacity)
 {
-    uint32_t size;
+    pb_uint64_t wire_length;
     size_t alloc_size;
     pb_byte_t *data;
 
-    if (!pb_decode_varint32(stream, &size))
+    if (!pb_decode_varint(stream, &wire_length))
         return false;
 
-    if (size > PB_SIZE_MAX)
+    if (wire_length > PB_SIZE_MAX)
         PB_RETURN_ERROR(stream, "bytes overflow");
 
     /* Space for null terminator */
-    alloc_size = (size_t)(size + 1);
+    alloc_size = (size_t)(wire_length + 1);
 
-    if (alloc_size < size)
+    if (alloc_size < wire_length)
         PB_RETURN_ERROR(stream, "size too large");
 
 #ifdef PB_ENABLE_MALLOC
@@ -1712,9 +1715,9 @@ bool checkreturn pb_dec_string(pb_istream_t *stream, void *dest, size_t capacity
         data = (pb_byte_t *)dest;
     }
 
-    data[size] = 0;
+    data[wire_length] = 0;
 
-    if (!pb_read(stream, data, (size_t)size))
+    if (!pb_read(stream, data, (size_t)wire_length))
     {
 #ifdef PB_ENABLE_MALLOC
         if (!capacity)
@@ -1794,22 +1797,22 @@ bool checkreturn pb_dec_submessage(pb_istream_t *stream, const pb_field_iter_t *
 
 bool checkreturn pb_dec_fixed_length_bytes(pb_istream_t *stream, void *dest, size_t capacity)
 {
-    uint32_t size;
+    pb_uint64_t wire_length;
 
-    if (!pb_decode_varint32(stream, &size))
+    if (!pb_decode_varint(stream, &wire_length))
         return false;
 
-    if (size > PB_SIZE_MAX)
+    if (wire_length > PB_SIZE_MAX)
         PB_RETURN_ERROR(stream, "bytes overflow");
 
-    if (size == 0)
+    if (wire_length == 0)
     {
         /* As a special case, treat empty bytes string as all zeros for fixed_length_bytes. */
         memset(dest, 0, capacity);
         return true;
     }
 
-    if (size != capacity)
+    if (wire_length != capacity)
         PB_RETURN_ERROR(stream, "incorrect fixed length bytes size");
 
     return pb_read(stream, (pb_byte_t *)dest, capacity);
