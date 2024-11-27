@@ -213,91 +213,78 @@ static void pb_bind_dynamic_decode_interface()
  * Helper functions *
  ********************/
 
-bool checkreturn pb_decode_varint32(pb_istream_t *stream, uint32_t *dest)
+static pb_uvarint_t pb_popcount7(pb_uvarint_t x)
 {
-    uint32_t result;
-    uint32_t bitpos;
-    uint32_t expect;
-    uint32_t append;
+    return (uint32_t)(((x * 0x00204081) & 0x11111111) * 0x11111111) >> 28;
+}
+
+static bool pb_decode_varint_ex(pb_istream_t *stream, pb_type_t ltype, void *dest, size_t size)
+{
+    pb_uvarint_t bitmask;
+    pb_uvarint_t result;
+    pb_uvarint_t excess;
+    pb_uvarint_t append;
+    pb_uvarint_t shift;
     pb_byte_t byte;
 
+    bitmask = (pb_uvarint_t)-1 >> ((sizeof(pb_uvarint_t) - size) << 3);
     result = 0;
-    bitpos = 0;
+    excess = 0;
+    shift = 0;
 
     do
     {
         if (!pb_readbyte(stream, &byte))
-            return false;
+            return 0;
 
         append = byte & 0x7F;
 
-        if (bitpos >= 28)
-        {
-            if (bitpos == 28)
-            {
-                /* append the final 4 bits */
-                result |= (byte & 0x0F) << bitpos;
+        result |= (append & bitmask) << shift;
+        excess += pb_popcount7(append & ~bitmask);
 
-                /* if the sign bit is set (and extended), all subsequent bits must also be set */
-                if ((byte & 0x78) == 0x78)
-                    expect = 0x7F;
-                else
-                    expect = 0x00;
-
-                /* only check the high 3 bits */
-                append = (byte & 0x70) | (expect & 0x0F);
-            }
-            else if (bitpos == 63)
-            {
-                /* only check the "continue" and low bit */
-                append = (byte & 0x81) | (expect & 0x7E);
-            }
-
-            if (append != expect)
-                PB_RETURN_ERROR(stream, "varint overflow");
-        }
-        else
-        {
-            result |= append << bitpos;
-        }
-
-        bitpos += 7;
+        bitmask >>= 7;
+        shift += 7;
     } while (byte & 0x80);
 
-    *dest = result;
+    /* ignore overflow caused by sign extension */
+    if (ltype == PB_LTYPE_VARINT)
+    {
+        const pb_uvarint_t read_bits = (((shift + 1u) >> 3) << 3);
+        const pb_uvarint_t max_bits = (pb_uvarint_t)(size << 3);
+
+        if ((result >> (max_bits - 1u)) != 0 && excess == (read_bits - max_bits))
+            excess = 0;
+    }
+
+    if (excess)
+        PB_RETURN_ERROR(stream, "varint overflow");
+
+    /* convert from unsigned back to signed */
+    if (ltype == PB_LTYPE_SVARINT)
+    {
+        result = (pb_uvarint_t)((pb_svarint_t)(result >> 1) ^ -(pb_svarint_t)(result & 0x1));
+    }
+
+    if (size == sizeof(pb_uvarint_t))
+        *(pb_uvarint_t *)dest = result;
+    else if (size == sizeof(uint32_t))
+        *(uint32_t *)dest = (uint32_t)result;
+    else if (size == sizeof(uint_least16_t))
+        *(uint_least16_t *)dest = (uint_least16_t)result;
+    else
+        *(uint_least8_t *)dest = (uint_least8_t)result;
 
     return true;
 }
 
+bool checkreturn pb_decode_varint32(pb_istream_t *stream, uint32_t *dest)
+{
+    return pb_decode_varint_ex(stream, PB_LTYPE_VARINT, dest, sizeof(*dest));
+}
+
 bool checkreturn pb_decode_varint(pb_istream_t *stream, pb_uvarint_t *dest)
 {
-#ifdef PB_WITHOUT_64BIT
-    return pb_decode_varint32(stream, dest);
-#else
-    uint64_t result;
-    uint32_t bitpos;
-    pb_byte_t byte;
-
-    result = 0;
-    bitpos = 0;
-
-    do
-    {
-        if (!pb_readbyte(stream, &byte))
-            return false;
-
-        result |= (uint64_t)(byte & 0x7F) << bitpos;
-
-        bitpos += 7;
-    } while (byte & 0x80);
-
-    if (bitpos > 70)
-        PB_RETURN_ERROR(stream, "varint overflow");
-
-    *dest = result;
-
-    return true;
-#endif
+    return pb_decode_varint_ex(stream, PB_LTYPE_VARINT, dest, sizeof(*dest));
 }
 
 bool checkreturn pb_skip_varint(pb_istream_t *stream)
@@ -1454,14 +1441,7 @@ bool pb_decode_bool(pb_istream_t *stream, bool *dest)
 
 bool pb_decode_svarint(pb_istream_t *stream, pb_svarint_t *dest)
 {
-    pb_uvarint_t value;
-
-    if (!pb_decode_varint(stream, &value))
-        return false;
-
-    *dest = (pb_svarint_t)(value >> 1) ^ -(pb_svarint_t)(value & 0x1);
-    
-    return true;
+    return pb_decode_varint_ex(stream, PB_LTYPE_SVARINT, dest, sizeof(*dest));
 }
 
 bool pb_decode_fixed32(pb_istream_t *stream, void *dest)
@@ -1521,89 +1501,17 @@ bool checkreturn pb_dec_bool(pb_istream_t *stream, void *dest)
 
 bool checkreturn pb_dec_varint(pb_istream_t *stream, void *dest, size_t size)
 {
-    pb_uvarint_t overflow;
-
-    union {
-        pb_uvarint_t u64;
-        pb_svarint_t s64;
-    } value;
-
-    if (!pb_decode_varint(stream, &value.u64))
-        return false;
-
-    /* See issue 97: Google's C++ protobuf allows negative varint values to
-    * be cast as int32_t, instead of the int64_t that should be used when
-    * encoding. Nanopb versions before 0.2.5 had a bug in encoding. In order to
-    * not break decoding of such messages, we cast <=32 bit fields to
-    * int32_t first to get the sign correct.
-    */
-    if (size <= 4)
-        value.s64 = (int32_t)value.s64;
-
-    /* Check that the decoded value isn't too small for the field */
-    if (sizeof(pb_uvarint_t) < size)
-        PB_RETURN_ERROR(stream, "invalid data_size");
-
-    /* Check that the decoded value isn't too big for the field */
-    overflow = value.s64 >= 0 ? value.u64 : ~value.u64;
-
-    if (overflow >> (size_t)((size << 3) - 1))
-        PB_RETURN_ERROR(stream, "integer too large");
-
-    memcpy(dest, &value.u64, size);
-
-    return true;
+    return pb_decode_varint_ex(stream, PB_LTYPE_VARINT, dest, size);
 }
 
 bool checkreturn pb_dec_uvarint(pb_istream_t *stream, void *dest, size_t size)
 {
-    pb_uvarint_t value;
-
-    if (!pb_decode_varint(stream, &value))
-        return false;
-
-    /* Check that the decoded value isn't too small for the field */
-    if (sizeof(pb_uvarint_t) < size)
-        PB_RETURN_ERROR(stream, "invalid data_size");
-
-    /* Check that the decoded value isn't too big for the field. Unlike the test in
-       pb_dec_varint which checks to see if something overflowed into the sign bit,
-       this is just checking to see if any bits are set after size << 3. The extra
-       shift to the right by 1 is to avoid a conditional in the event that size is
-       equal to sizeof(pb_uvarint_t) */
-    if ((value >> 1) >> (size_t)((size << 3) - 1))
-        PB_RETURN_ERROR(stream, "integer too large");
-
-    memcpy(dest, &value, size);
-
-    return true;
+    return pb_decode_varint_ex(stream, PB_LTYPE_UVARINT, dest, size);
 }
 
 bool checkreturn pb_dec_svarint(pb_istream_t *stream, void *dest, size_t size)
 {
-    pb_uvarint_t overflow;
-
-    union {
-        pb_uvarint_t u64;
-        pb_svarint_t s64;
-    } value;
-
-    if (!pb_decode_svarint(stream, &value.s64))
-        return false;
-
-    /* Check that the decoded value isn't too small for the field */
-    if (sizeof(pb_uvarint_t) < size)
-        PB_RETURN_ERROR(stream, "invalid data_size");
-
-    /* Check that the decoded value isn't too big for the field */
-    overflow = value.s64 >= 0 ? value.u64 : ~value.u64;
-
-    if (overflow >> (size_t)((size << 3) - 1))
-        PB_RETURN_ERROR(stream, "integer too large");
-
-    memcpy(dest, &value.u64, size);
-
-    return true;
+    return pb_decode_varint_ex(stream, PB_LTYPE_SVARINT, dest, size);
 }
 
 bool checkreturn pb_dec_fixed32(pb_istream_t *stream, void *dest)
