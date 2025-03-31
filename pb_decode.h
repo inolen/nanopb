@@ -188,11 +188,7 @@ bool pb_skip_field(pb_istream_t *stream, pb_wire_type_t wire_type);
 
 /* Decode an integer in the varint format. This works for enum, int32,
  * int64, uint32 and uint64 field types. */
-#ifndef PB_WITHOUT_64BIT
-bool pb_decode_varint(pb_istream_t *stream, uint64_t *dest);
-#else
-#define pb_decode_varint pb_decode_varint32
-#endif
+bool pb_decode_varint(pb_istream_t *stream, pb_uvarint_t *dest);
 
 /* Decode an integer in the varint format. This works for enum, int32,
  * and uint32 field types. */

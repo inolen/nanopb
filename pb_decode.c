@@ -269,9 +269,11 @@ bool checkreturn pb_decode_varint32(pb_istream_t *stream, uint32_t *dest)
     return true;
 }
 
-#ifndef PB_WITHOUT_64BIT
-bool checkreturn pb_decode_varint(pb_istream_t *stream, uint64_t *dest)
+bool checkreturn pb_decode_varint(pb_istream_t *stream, pb_uvarint_t *dest)
 {
+#ifdef PB_WITHOUT_64BIT
+    return pb_decode_varint32(stream, dest);
+#else
     uint64_t result;
     uint32_t bitpos;
     pb_byte_t byte;
@@ -295,8 +297,8 @@ bool checkreturn pb_decode_varint(pb_istream_t *stream, uint64_t *dest)
     *dest = result;
 
     return true;
-}
 #endif
+}
 
 bool checkreturn pb_skip_varint(pb_istream_t *stream)
 {
